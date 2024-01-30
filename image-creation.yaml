@@ -2,219 +2,42 @@
 - name: Create a custom container
   hosts: myhosts
   gather_facts: false
-
-  tasks: 
-
-    - name: Load variables from external file
-      include_vars:
-        file: ./variables.yaml
-      register: vars
-
-    - name: Launch LXC container
-      community.general.lxd_container:
-        name: "{{ vars.new_container }}"
-        state: started
-        source:
-          type: image
-          mode: pull
-          server: https://images.linuxcontainers.org
-          protocol: simplestreams
-          alias: ubuntu/jammy/amd64
-        profiles: ["default"]
-        wait_for_ipv4_addresses: true
-        timeout: 600
-
-    - name: Check if user "{{ vars.username1 }}" exists 
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- id "{{ vars.username1 }}"
-      register: user_check
-      failed_when: false
-      changed_when: false
-
-    - name: Add user "{{ vars.username1 }}"
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- useradd -m -s /bin/bash "{{ vars.username1 }}"
-      when: "'no such user' in user_check.stderr.lower()"
-
-    - name: Check if user "{{ vars.username1 }}" has sudo privileges. 
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- getent group sudo | grep "{{ vars.username1 }}"  
-      register: sudo_group_check
-      failed_when: false
-      changed_when: false
-
-    - name: Give sudo privileges to user "{{ vars.username1 }}"
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- usermod -aG sudo "{{ vars.username1 }}"
-      become: yes
-      become_method: sudo
-      when: sudo_group_check.rc == 1 
-
-    - name: Check if user "{{ vars.username1 }}" has passwordless sudo privileges
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- grep '\{{ vars.username1 }} ALL=(ALL) NOPASSWD:ALL' /etc/sudoers
-      become: yes
-      become_method: sudo
-      failed_when: false
-      changed_when: false
-      register: passwordless_check
-    
-    - name: Grant "{{ vars.username1 }}" passwordless sudo privileges
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- sh -c "echo '{{ vars.username1 }} ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers"
-      become: yes
-      become_method: sudo
-      when: passwordless_check.rc == 1 
-
-    - name: Check if SSH server is installed
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- which sshd
-      register: sshd_check
-      failed_when: false
-      changed_when: false
-
-    - name: Install SSH server
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- sh -c 'sudo apt update && sudo apt install -y openssh-server'
-      when: sshd_check.rc == 1
-
-    - name: Check if .ssh directory exists
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- sh -c 'test -d /home/{{ vars.username1 }}/.ssh/'
-      register: ssh_directory_check
-      failed_when: false
-      changed_when: false
-
-    - name: Create the .ssh directory 
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- mkdir -p /home/{{ vars.username1 }}/.ssh
-      when: ssh_directory_check.rc == 1
-
-    - name: Check if authorized_keys file exists
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- sh -c 'test -f /home/{{ vars.username1 }}/.ssh/authorized_keys'
-      register: authorized_keys_check
-      failed_when: false
-      changed_when: false
-
-    - name: Create authorized_keys file if it doesn't exist
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- sh -c 'touch /home/{{ vars.username1 }}/.ssh/authorized_keys'
-      when: authorized_keys_check.rc == 1
-
-    - name: Check if public key is already in authorized_keys
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- grep "$(cat ~/.ssh/id_ecdsa.pub)" /home/{{ vars.username1 }}/.ssh/authorized_keys
-      register: public_key_check
-      failed_when: false
-      changed_when: false
-
-    - name: Add public key to authorized_keys
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- sh -c 'echo "{{ lookup('file', '~/.ssh/id_ecdsa.pub') }}" >> /home/{{ vars.username1 }}/.ssh/authorized_keys'
-      when: public_key_check.rc == 1
-
-    - name: Restart SSH service if configuration changed
-      ansible.builtin.shell: lxc exec "{{ vars.new_container }}" -- systemctl restart ssh
-      when: sshd_check.rc == 1 or ssh_directory_check.rc == 1 or public_key_check.rc == 1 
-
-    - name: Get LXD container IP
-      ansible.builtin.raw: lxc list "{{ vars.new_container }}" --format=json | jq -r '.[0].state.network.eth0.addresses[0].address'
-      changed_when: false
-      register: container_ip 
-    
-    - name: Add the new host to the inventory
-      add_host:
-        name: "{{ container_ip.stdout_lines[0] }}"
-        ansible_host: "{{ container_ip.stdout_lines[0] }}"
-        groups: lxd_image
-      delegate_to: localhost
-  
-
-- name: Load variables from external file 
-  hosts: lxd_image
-  tasks: 
-     - name: Load variables from external file
-       include_vars:
-         file: ./variables.yaml
-       register: vars
-
+  roles: 
+    - system_initialization
 
 - name: Further customize the newly created container
   hosts: lxd_image
   gather_facts: false
   become: yes
+  roles: 
+    - system_config
   
+- name: Publish image 
+  hosts: myhosts
+  gather_facts: false
+  become: yes
   tasks: 
-      - name: Restrict ssh into node for root
-        ansible.builtin.lineinfile:
-          path: /etc/ssh/sshd_config
-          line: "^PermitRootLogin no"
-      
-      - name: Add user {{ vars.username2 }}
-        ansible.builtin.user:
-          name: "{{ vars.username2 }}"
-          state: present
-          createhome: yes
-          groups: sudo
-          append: yes
+   
+    - name: include vars file
+      include_vars: "{{ playbook_dir }}/variables.yaml"
 
-      - name: Grant {{ vars.username2 }} passwordless sudo privileges
-        ansible.builtin.lineinfile:
-          path: /etc/sudoers
-          line: '{{ vars.username2 }} ALL=(ALL) NOPASSWD:ALL'
-          validate: 'visudo -cf %s'
+    - name: Check if image already exists
+      ansible.builtin.shell: lxc image list {{ image_alias }} --format=json 
+      register: image_check
+      failed_when: false
+      changed_when: false
 
-      - name: Add user {{ vars.username3 }}
-        ansible.builtin.user:
-          name: "{{ vars.username3 }}"
-          state: present
-          createhome: yes
+    - name: Stop the container if it's running
+      community.general.lxd_container:
+          name: "{{ new_container }}"
+          state: stopped
+      register: stop_result
+      when: image_check.rc == 0 
 
-      - name: Install acl package
-        ansible.builtin.package:
-          name: acl
-          state: present
-
-      - name: Grant access to /tmp/ directory for {{ vars.username3 }}
-        ansible.builtin.acl:
-          path: /tmp/
-          entity: "{{ vars.username3 }}"
-          etype: user
-          permissions: r
-          state: present
-      
-      - name: Create su group
-        ansible.builtin.group:
-          name: su_group
-          state: present
-
-      - name: Add user {{ vars.username4 }}
-        ansible.builtin.user:
-          name: "{{ vars.username4 }}"
-          state: present
-          createhome: yes
-          groups: su_group
-          append: yes
-
-      - name: Create parent directory for su-access file
-        ansible.builtin.file:
-          path: /etc/security
-          state: directory
-
-      - name: Create su-access file
-        ansible.builtin.lineinfile:
-          path: /etc/security/su-access
-          line: root
-          create: yes
-
-      - name: Set ownership and permissions for su-access file
-        ansible.builtin.file:
-          path: /etc/security/su-access
-          owner: root
-          group: root
-          mode: '0644'
-      
-      # Let username4 do "su root" with a password without being part of sudo group 
-      - name: Create su-access file
-        ansible.builtin.blockinfile:
-          path: /etc/pam.d/su
-          block: |
-           auth  required    pam_wheel.so use_uid group=su_group
-           auth  required    pam_listfile.so item=user sense=allow onerr=fail file=/etc/security/su-access
-          create: yes
-      
-      - name: Set root password
-        ansible.builtin.user:
-          name: root
-          password: "$6$NWg2t7a7NXGXducs$days.9g8iU/P9FTsHOumpETAK99AMcVetgoE5Y63LngIde/Wpq6.NDlbvNBlnHnEsfATbv/6y9B1ykCe2ZIbk1"
-
+    - name: Publish image
+      ansible.builtin.shell: lxc publish {{ new_container }} --alias {{ image_alias }}
+      when: stop_result.changed
+  
 
 
 

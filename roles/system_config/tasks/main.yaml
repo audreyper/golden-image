@@ -1,0 +1,106 @@
+
+    
+- name: include vars file
+  include_vars: "{{ playbook_dir }}/variables.yaml"
+
+- name: Restrict ssh into node for root
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    line: "PermitRootLogin no"
+
+- name: Enable PubkeyAuthentication in sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PubkeyAuthentication'
+    line: 'PubkeyAuthentication yes'
+
+- name: Add users for sudo group 
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: present
+    createhome: yes
+    groups: sudo
+    append: yes
+  loop: "{{ sudo_users }}"
+
+- name: Grant sudo users passwordless sudo privileges
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers
+    line: '{{ item }} ALL=(ALL) NOPASSWD:ALL'
+    validate: 'visudo -cf %s'
+  loop: "{{ sudo_users }}"
+
+- name: Add users for non sudo group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: present
+    createhome: yes
+  loop: "{{ non_sudo_users }}"
+
+- name: Update apt cache
+  become: yes
+  ansible.builtin.apt:
+    update_cache: yes
+
+- name: Install acl package
+  ansible.builtin.package:
+    name: acl
+    state: present
+
+- name: Grant access to /tmp/ directory for non sudo group
+  ansible.builtin.acl:
+    path: /tmp/
+    entity: "{{ item }}"
+    etype: user
+    permissions: r
+    state: present
+  loop: "{{ non_sudo_users }}"
+
+- name: Create su group
+  ansible.builtin.group:
+    name: su_group
+    state: present
+
+- name: Add users for su group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: present
+    createhome: yes
+    groups: su_group
+    append: yes
+  loop: "{{ su_group_users }}"
+
+- name: Create parent directory for su-access file
+  ansible.builtin.file:
+    path: /etc/security
+    state: directory
+
+- name: Create su-access file
+  ansible.builtin.lineinfile:
+    path: /etc/security/su-access
+    line: root
+    create: yes
+    state: present
+
+- name: Set ownership and permissions for su-access file
+  ansible.builtin.file:
+    path: /etc/security/su-access
+    owner: root
+    group: root
+    mode: '0644'
+
+# Let username4 do "su root" with a password without being part of sudo group 
+- name: Create su-access file
+  ansible.builtin.blockinfile:
+    path: /etc/pam.d/su
+    block: |
+      auth  required    pam_wheel.so use_uid group=su_group
+      auth  required    pam_listfile.so item=user sense=allow onerr=fail file=/etc/security/su-access
+    create: yes
+    state: present
+
+- name: Set root password
+  ansible.builtin.user:
+    name: root
+    password: "{{ root_pass }}"
+    
