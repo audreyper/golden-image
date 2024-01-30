@@ -1,0 +1,19 @@
+- name: include vars file
+  include_vars: "{{ playbook_dir }}/variables.yaml"
+
+- name: Check if image already exists
+  ansible.builtin.shell: lxc image list {{ image_alias }} --format=json 
+  register: image_check
+  failed_when: false
+  changed_when: false
+
+- name: Stop the container if it's running
+  community.general.lxd_container:
+      name: "{{ new_container }}"
+      state: stopped
+  register: stop_result
+  when: image_check.rc == 0 
+
+- name: Publish image
+  ansible.builtin.shell: lxc publish {{ new_container }} --alias {{ image_alias }}
+  when: stop_result.changed
