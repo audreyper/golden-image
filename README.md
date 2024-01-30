@@ -6,13 +6,13 @@ This Ansible playbook automates the process of creating a golden image of a LXD 
 
 Before running this playbook, ensure you have the following prerequisites set up:
 
-### Ansible installed 
+### 1. Ansible installed 
 
-### Inventory File: 
+### 2. Inventory File: 
 
 If you won't use localhost as the host, create an inventory.ini file with the necessary host configurations. Refer to the Ansible documentation for more information on creating an inventory file.
 
-### Ansible Configuration: 
+### 3. Ansible Configuration: 
 
 You may need to set up an ansible.cfg file with the following configurations:
 
@@ -22,7 +22,7 @@ You may need to set up an ansible.cfg file with the following configurations:
 
 Adjust these configurations based on your environment and requirements.
 
-### Variables File: 
+### 4. Variables File: 
 
 Set up a variables.yaml file with the following variables:
 
@@ -42,16 +42,13 @@ To use this playbook, follow these steps:
 
 2. Clone this repository to your local machine:
 
-```bash
-git clone https://github.com/audreyper/golden-image.git
+`git clone https://github.com/audreyper/golden-image.git`
 
-#### Navigate to the directory containing the playbook:
+Navigate to the directory containing the playbook:
 
-```bash
-cd <playbook-directory>
+`cd <playbook-directory>`
 
-#### Run the playbook:
+Run the playbook:
 
-```bash
-ansible-playbook playbook.yml -i inventory.ini
+`ansible-playbook playbook.yml -i inventory.ini`
 
