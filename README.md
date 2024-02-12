@@ -1,6 +1,6 @@
 # Ansible Playbook: Create Golden Image of LXD Container
 
-This Ansible playbook automates the process of creating a golden image of a LXD container and publishing the container as an image.
+This Ansible playbook automates the process of creating a LXD container and publishing the container as an image.
 
 ## Prerequisites
 
